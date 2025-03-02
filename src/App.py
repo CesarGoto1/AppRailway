@@ -6,26 +6,78 @@ from flask_cors import CORS
 import json
 from datetime import datetime
 import random
+import os
 
 # Inicialización de la aplicación Flask y configuración CORS
 app = Flask(__name__)
-CORS(app, origins="http://localhost:3000")
+CORS(app)
 
 # Configuración de la conexión a la base de datos PostgreSQL
-DATABASE_URL = "postgresql://postgres:Nisemono27@localhost:5432/hikarishiftx" 
+DATABASE_URL = os.getenv("DATABASE_URL")
 def get_db_connection():
     try:
         conn = psycopg.connect(DATABASE_URL)
-        print("Conexión a la base de datos exitosa.")
         return conn
     except Exception as e:
         print(f"Error al conectar a la base de datos: {e}")
         return None
 
-# Verificar la conexión al iniciar el servidor
+def create_tables():
+    conn = get_db_connection()
+    if conn is None:
+        print("Error en la conexión a la base de datos. No se pueden crear las tablas.")
+        return
+
+    with conn:
+        with conn.cursor() as cursor:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password VARCHAR(255) NOT NULL
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS reference_metrics (
+                    id SERIAL PRIMARY KEY,
+                    avg_attention FLOAT,
+                    avg_gaze_x FLOAT,
+                    avg_gaze_y FLOAT,
+                    computed_date TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS session_metrics (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    session_date TIMESTAMP,
+                    avg_attention FLOAT,
+                    avg_gaze_x FLOAT,
+                    avg_gaze_y FLOAT,
+                    raw_data JSONB
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS comparative_results (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id),
+                    session_metric_id INTEGER REFERENCES session_metrics(id),
+                    diff_attention FLOAT,
+                    diff_gaze_x FLOAT,
+                    diff_gaze_y FLOAT,
+                    comparison_date TIMESTAMP,
+                    raw_comparison JSONB
+                )
+            ''')
+            conn.commit()
+    conn.close()
+    print("Tablas creadas o verificadas correctamente.")
+
+# Verificar la conexión y crear tablas al iniciar el servidor
 if get_db_connection() is None:
     print("No se pudo establecer la conexión a la base de datos. El servidor no se iniciará.")
 else:
+    create_tables()
     print("El servidor está listo para recibir peticiones.")
 
 # =====================================================
@@ -102,7 +154,7 @@ def save_session_data():
     try:
         # Cálculo de promedios para datos de Morphcast
         morphcast_data = data.get('session_data', {}).get('morphcast', [])
-        if morphcast_data:
+        if (morphcast_data):
             # Extraemos las atenciones de los datos de Morphcast
             attention_values = []
             for mcast in morphcast_data:
@@ -114,7 +166,7 @@ def save_session_data():
 
         # Cálculo de promedios para datos de GazeRecorder
         gaze_data = data.get('session_data', {}).get('gazeRecorder', [])
-        if gaze_data:
+        if (gaze_data):
             # Si ya tienes datos, los mantienes como están, pero si no, generas datos aleatorios
             gaze_x_values = [random.uniform(0, 1) for _ in range(10)]  # 10 valores aleatorios entre 0 y 1 para x
             gaze_y_values = [random.uniform(0, 1) for _ in range(10)]  # 10 valores aleatorios entre 0 y 1 para y
@@ -164,30 +216,6 @@ def save_session_data():
                 # -------------------------------
                 # Comparación automática
                 # -------------------------------
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS reference_metrics (
-                        id SERIAL PRIMARY KEY,
-                        avg_attention FLOAT,
-                        avg_gaze_x FLOAT,
-                        avg_gaze_y FLOAT,
-                        computed_date TIMESTAMP
-                    )
-                ''')
-
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS comparative_results (
-                        id SERIAL PRIMARY KEY,
-                        user_id INTEGER REFERENCES users(id),
-                        session_metric_id INTEGER REFERENCES session_metrics(id),
-                        diff_attention FLOAT,
-                        diff_gaze_x FLOAT,
-                        diff_gaze_y FLOAT,
-                        comparison_date TIMESTAMP,
-                        raw_comparison JSONB
-                    )
-                ''')
-
-                # Obtener la métrica de referencia más reciente
                 cursor.execute('''
                     SELECT avg_attention, avg_gaze_x, avg_gaze_y FROM reference_metrics 
                     ORDER BY computed_date DESC LIMIT 1
@@ -270,17 +298,20 @@ def save_session_data():
 # =====================================================
 @app.route('/get_results', methods=['GET'])
 def get_results():
-    # Se espera que el cliente envíe el user_id como parámetro en la URL
+    print("Solicitud recibida en /get_results")
     user_id = request.args.get('user_id')
     if not user_id:
+        print("user_id no proporcionado")
         return jsonify({'success': False, 'message': 'user_id no proporcionado'}), 400
     try:
         user_id = int(user_id)
     except ValueError:
+        print("user_id inválido")
         return jsonify({'success': False, 'message': 'user_id inválido'}), 400
 
     conn = get_db_connection()
     if conn is None:
+        print("Error en la conexión a la base de datos")
         return jsonify({'success': False, 'message': 'Error en la conexión a la base de datos'}), 500
 
     with conn:
