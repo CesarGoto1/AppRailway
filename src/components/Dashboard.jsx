@@ -15,7 +15,7 @@ const Dashboard = ({ onClose }) => {
           throw new Error("No se encontró el user_id");
         }
         // Se incluye el user_id en la query string
-        const res = await fetch(`app-railway-hlaj2pwr2-cesars-projects-916598e4.vercel.app/get_results?user_id=${userId}`);
+        const res = await fetch(`https://app-railway-delta.vercel.app/get_results?user_id=${userId}`);
         const json = await res.json();
         if (json.success) {
           setData(json);
